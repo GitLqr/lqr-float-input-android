@@ -107,6 +107,8 @@ public class SoftInputObserver extends Handler implements ViewTreeObserver.OnGlo
         Rect rect = getWindowDisplayRect(rootView);
         int windowCurrentHeight = rect.height();
         int windowOriHeight = getWindowOriHeight();
+        // 有时，刚设置 OnGlobalLayoutListener 就马上触发了，此时窗口原始高度为0，异常情况，忽略。
+        if (windowOriHeight == 0) return;
 
         log("onGlobalLayout orientation = " + orientation + ", windowCurrentHeight = " + windowCurrentHeight + ", windowOriHeight = " + windowOriHeight);
 
@@ -120,10 +122,12 @@ public class SoftInputObserver extends Handler implements ViewTreeObserver.OnGlo
     }
 
     /**
-     * 确保 {@link #onGlobalLayoutComplete()} 一定会执行
+     * 确保 {@link #onGlobalLayoutComplete()} 一定会执行，
+     * 注意：该方法执行时，需要连同将当前准备执行的 {@link #throttleGlobalLayoutComplete()} 一并取消掉，避免多次执行。
      */
     private void ensureGlobalLayoutComplete() {
         log("ensureGlobalLayoutComplete");
+        removeMessages(WHAT_THROTTLE_GLOBAL_LAYOUT_COMPLETE);
         removeMessages(WHAT_ENSURE_GLOBAL_LAYOUT_COMPLETE);
         Message msg = Message.obtain(this, WHAT_ENSURE_GLOBAL_LAYOUT_COMPLETE);
         sendMessageDelayed(msg, 100);
@@ -150,12 +154,8 @@ public class SoftInputObserver extends Handler implements ViewTreeObserver.OnGlo
         int windowCurrentHeight = rect.height();
         int windowOriHeight = getWindowOriHeight();
 
-        if (windowCurrentHeight < windowOriHeight) {
-            // 窗口高度变小，说明输入法显示
-            if (!isSoftInputShow) {
-                onSoftInputShow();
-            }
-        } else if (windowCurrentHeight == windowOriHeight) {
+        // windowCurrentHeight == windowOriHeight
+        if (isWindowNearOriHeight(windowCurrentHeight, windowOriHeight)) {
             // 窗口高度 变回 原大小，不一定是 输入法隐藏，有以下几种情况：
             // 1、输入法还没有出现（隐 -> 显）
             // 2、输入法完全收起来（显 -> 隐）
@@ -163,7 +163,28 @@ public class SoftInputObserver extends Handler implements ViewTreeObserver.OnGlo
             if (isSoftInputShow) {
                 onSoftInputHide();
             }
+        } else if (windowCurrentHeight < windowOriHeight) {
+            // 窗口高度变小，说明输入法显示
+            if (!isSoftInputShow) {
+                onSoftInputShow();
+            }
         }
+    }
+
+    /**
+     * 竖屏状态下，获取的到窗口原始横屏高度（1220）不一定准确，因为没有考虑横屏下状态栏高度，实际窗口原始横屏高度会小一些（1132）。
+     * 同样的，横屏状态下，获取到的窗口原始竖屏高度（2624）也不一定准确，因为没有考虑到竖屏下 状态栏 和 底部导航栏 高度。
+     * 当然，可以通过减去当前屏幕方向状态下状态栏（和 竖屏下底部导航栏）高度来获取准确的高度值，但这种做法就比较繁琐了，
+     * 不如，直接采用计算比例的方式来得简单。
+     *
+     * @param windowCurrentHeight 当前窗口高度
+     * @param windowOriHeight     原始窗口高度
+     * @return
+     */
+    private boolean isWindowNearOriHeight(int windowCurrentHeight, int windowOriHeight) {
+        int ratio = windowOriHeight != 0 ? windowCurrentHeight * 100 / windowOriHeight : 0;
+        log("isWindowNearOriHeight windowCurrentHeight = " + windowCurrentHeight + ", windowOriHeight = " + windowOriHeight + ", ratio = " + ratio);
+        return ratio > 80;
     }
 
     private void onSoftInputShow() {

@@ -1,2 +1,3 @@
+include ':float-input'
 include ':app'
 rootProject.name = "lqr-float-input-android"
